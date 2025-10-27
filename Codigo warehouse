@@ -1,0 +1,281 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+           https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>warehouse</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <java.version>17</java.version>
+    <spring.boot.version>3.2.0</spring.boot.version>
+  </properties>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>${spring.boot.version}</version>
+    <relativePath />
+  </parent>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-amqp</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.junit.vintage</groupId>
+          <artifactId>junit-vintage-engine</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <source>${java.version}</source>
+          <target>${java.version}</target>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+
+package com.example.warehouse;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class WarehouseApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(WarehouseApplication.class, args);
+    }
+}
+package com.example.warehouse.config;
+
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class RabbitConfig {
+
+    public static final String STOCK_EXCHANGE = "stock.exchange";
+    public static final String STOCK_UPDATED_QUEUE = "stock.updated.queue";
+    public static final String STOCK_ROUTING_KEY = "stock.updated";
+
+    @Bean
+    public TopicExchange stockExchange() {
+        return new TopicExchange(STOCK_EXCHANGE);
+    }
+
+    @Bean
+    public Queue stockUpdatedQueue() {
+        return new Queue(STOCK_UPDATED_QUEUE);
+    }
+
+    @Bean
+    public Binding binding(Queue stockUpdatedQueue, TopicExchange stockExchange) {
+        return BindingBuilder.bind(stockUpdatedQueue).to(stockExchange).with(STOCK_ROUTING_KEY);
+    }
+
+    @Bean
+    public Jackson2JsonMessageConverter jacksonConverter() {
+        return new Jackson2JsonMessageConverter();
+    }
+
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory cf, Jackson2JsonMessageConverter converter) {
+        RabbitTemplate template = new RabbitTemplate(cf);
+        template.setMessageConverter(converter);
+        return template;
+    }
+}
+package com.example.warehouse.dto;
+
+public record StockUpdateEvent(Long productId, int availableQty) { }
+package com.example.warehouse.dto;
+
+public record ProductAvailability(Long productId, boolean available) { }
+package com.example.warehouse.domain;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "product_stock")
+public class ProductStock {
+
+    @Id
+    private Long productId;
+
+    private Integer availableQty;
+
+    public ProductStock() {}
+
+    public ProductStock(Long productId, Integer availableQty) {
+        this.productId = productId;
+        this.availableQty = availableQty;
+    }
+
+    public Long getProductId() {
+        return productId;
+    }
+
+    public void setProductId(Long productId) {
+        this.productId = productId;
+    }
+
+    public Integer getAvailableQty() {
+        return availableQty;
+    }
+
+    public void setAvailableQty(Integer availableQty) {
+        this.availableQty = availableQty;
+    }
+}
+package com.example.warehouse.repository;
+
+import com.example.warehouse.domain.ProductStock;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface WarehouseRepository extends JpaRepository<ProductStock, Long> { }
+package com.example.warehouse.service;
+
+import com.example.warehouse.config.RabbitConfig;
+import com.example.warehouse.domain.ProductStock;
+import com.example.warehouse.dto.StockUpdateEvent;
+import com.example.warehouse.repository.WarehouseRepository;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class WarehouseService {
+
+    private final WarehouseRepository repository;
+    private final AmqpTemplate amqpTemplate;
+
+    public WarehouseService(WarehouseRepository repository, AmqpTemplate amqpTemplate) {
+        this.repository = repository;
+        this.amqpTemplate = amqpTemplate;
+    }
+
+    @Transactional
+    public void adjustStock(Long productId, int delta) {
+        ProductStock stock = repository.findById(productId)
+                .orElseGet(() -> new ProductStock(productId, 0));
+        int current = stock.getAvailableQty() == null ? 0 : stock.getAvailableQty();
+        int updated = Math.max(0, current + delta);
+        stock.setAvailableQty(updated);
+        repository.save(stock);
+
+        // publica evento assíncrono
+        amqpTemplate.convertAndSend(RabbitConfig.STOCK_EXCHANGE, RabbitConfig.STOCK_ROUTING_KEY,
+                new StockUpdateEvent(productId, updated));
+    }
+
+    public int getAvailable(Long productId) {
+        return repository.findById(productId).map(ProductStock::getAvailableQty).orElse(0);
+    }
+}
+package com.example.warehouse.web;
+
+import com.example.warehouse.dto.ProductAvailability;
+import com.example.warehouse.service.WarehouseService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/warehouse")
+public class WarehouseController {
+
+    private final WarehouseService service;
+
+    public WarehouseController(WarehouseService service) {
+        this.service = service;
+    }
+
+    @GetMapping("/products/{id}/availability")
+    public ResponseEntity<ProductAvailability> checkAvailability(@PathVariable("id") Long id) {
+        boolean available = service.getAvailable(id) > 0;
+        return ResponseEntity.ok(new ProductAvailability(id, available));
+    }
+
+    @PostMapping("/products/{id}/adjust")
+    public ResponseEntity<Void> adjust(@PathVariable("id") Long id, @RequestParam int delta) {
+        service.adjustStock(id, delta);
+        return ResponseEntity.noContent().build();
+    }
+}
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:warehouse;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
