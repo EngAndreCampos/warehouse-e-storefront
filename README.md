@@ -1,6 +1,6 @@
-# 🧱 Projeto de Microsserviços — Warehouse & Storefront
+#  Projeto de Microsserviços — Warehouse & Storefront
 
-## 📋 Descrição
+##  Descrição
 
 Este projeto demonstra uma **arquitetura de microsserviços em Java (Spring Boot)** composta por **dois serviços independentes** que se comunicam de forma:
 
@@ -11,12 +11,12 @@ Este projeto demonstra uma **arquitetura de microsserviços em Java (Spring Boot
 
 | Serviço | Porta | Descrição |
 |----------|--------|-----------|
-| 🏭 **Warehouse** | `8081` | Serviço de **armazém**. Gerencia o estoque de produtos e publica eventos de atualização. |
-| 🛍️ **Storefront** | `8080` | Serviço de **vitrine**. Consulta o estoque via HTTP e consome eventos RabbitMQ para manter o cache atualizado. |
+|  **Warehouse** | `8081` | Serviço de **armazém**. Gerencia o estoque de produtos e publica eventos de atualização. |
+|  **Storefront** | `8080` | Serviço de **vitrine**. Consulta o estoque via HTTP e consome eventos RabbitMQ para manter o cache atualizado. |
 
 ---
 
-## 🧰 Tecnologias utilizadas
+##  Tecnologias utilizadas
 
 - **Java 17**
 - **Spring Boot 3.x**
@@ -28,7 +28,7 @@ Este projeto demonstra uma **arquitetura de microsserviços em Java (Spring Boot
 
 ---
 
-## ⚙️ Arquitetura Geral
+##  Arquitetura Geral
 
     +---------------------------+
     |       Warehouse (8081)    |
@@ -50,9 +50,9 @@ Este projeto demonstra uma **arquitetura de microsserviços em Java (Spring Boot
 
 ---
 
-## 🚀 Executando o projeto
+##  Executando o projeto
 
-### 🧩 Pré-requisitos
+###  Pré-requisitos
 
 - **Java 17+**
 - **Maven 3.8+**
@@ -60,7 +60,7 @@ Este projeto demonstra uma **arquitetura de microsserviços em Java (Spring Boot
 
 ---
 
-🔹 Passo 1 — Subir o RabbitMQ
+ Passo 1 — Subir o RabbitMQ
 
 Inicie o broker RabbitMQ via Docker:
 
@@ -68,7 +68,7 @@ docker run -d --name rabbitmq \
   -p 5672:5672 -p 15672:15672 \
   rabbitmq:3-management
 
-🔹 Passo 2 — Rodar os microsserviços
+ Passo 2 — Rodar os microsserviços
 
 Abra dois terminais diferentes:
 
@@ -82,7 +82,7 @@ mvn clean spring-boot:run
 cd storefront
 mvn clean spring-boot:run
 
-🔹 Passo 3 — Testar endpoints
+ Passo 3 — Testar endpoints
 
 Ajustar o estoque (gera evento RabbitMQ)
 curl -X POST "http://localhost:8081/warehouse/products/1/adjust?delta=10"
@@ -96,8 +96,8 @@ curl http://localhost:8080/storefront/products/1/availability
 Ver cache local da vitrine (mantido via RabbitMQ)
 curl http://localhost:8080/storefront/cache
 
-🧩 Estrutura do projeto
-📁 /warehouse
+ Estrutura do projeto
+ /warehouse
  ├─ pom.xml
  ├─ Dockerfile
  └─ src/main/java/com/example/warehouse/
@@ -108,7 +108,7 @@ curl http://localhost:8080/storefront/cache
      ├─ repository/
      ├─ service/
      └─ web/
-📁 /storefront
+ /storefront
  ├─ pom.xml
  ├─ Dockerfile
  └─ src/main/java/com/example/storefront/
@@ -118,12 +118,12 @@ curl http://localhost:8080/storefront/cache
      ├─ listener/
      ├─ service/
      └─ web/
-📁 docker-compose.yml
-📄 README.md
+ docker-compose.yml
+ README.md
 
 ---
 
-## 🐇 Comunicação via RabbitMQ
+##  Comunicação via RabbitMQ
 
 ### Exchange / Queue configurados
 
@@ -135,7 +135,7 @@ curl http://localhost:8080/storefront/cache
 
 ---
 
-🔁 Fluxo de funcionamento
+ Fluxo de funcionamento
 
 - O warehouse recebe uma requisição POST /warehouse/products/{id}/adjust.
 
