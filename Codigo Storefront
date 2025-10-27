@@ -1,0 +1,265 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>storefront</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>storefront</name>
+    <description>Storefront Microservice</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring-boot.version>3.3.0</spring-boot.version>
+    </properties>
+
+    <dependencies>
+        <!-- Spring Boot -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- RabbitMQ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- JSON -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- DevTools (opcional) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: storefront
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+warehouse:
+  url: http://localhost:8081/warehouse
+
+package com.example.storefront;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class StorefrontApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(StorefrontApplication.class, args);
+    }
+}
+
+package com.example.storefront.config;
+
+import org.springframework.amqp.core.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class RabbitConfig {
+
+    public static final String STOCK_EXCHANGE = "stock.exchange";
+    public static final String STOCK_QUEUE = "stock.updated.queue";
+    public static final String ROUTING_KEY = "stock.updated";
+
+    @Bean
+    public TopicExchange exchange() {
+        return new TopicExchange(STOCK_EXCHANGE);
+    }
+
+    @Bean
+    public Queue queue() {
+        return new Queue(STOCK_QUEUE, true);
+    }
+
+    @Bean
+    public Binding binding(Queue queue, TopicExchange exchange) {
+        return BindingBuilder.bind(queue).to(exchange).with(ROUTING_KEY);
+    }
+}
+
+package com.example.storefront.dto;
+
+public class StockUpdateEvent {
+    private Long productId;
+    private Integer newQuantity;
+
+    public StockUpdateEvent() {}
+
+    public StockUpdateEvent(Long productId, Integer newQuantity) {
+        this.productId = productId;
+        this.newQuantity = newQuantity;
+    }
+
+    public Long getProductId() { return productId; }
+    public void setProductId(Long productId) { this.productId = productId; }
+
+    public Integer getNewQuantity() { return newQuantity; }
+    public void setNewQuantity(Integer newQuantity) { this.newQuantity = newQuantity; }
+}
+
+package com.example.storefront.service;
+
+import org.springframework.stereotype.Service;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class CacheService {
+    private final Map<Long, Integer> stockCache = new ConcurrentHashMap<>();
+
+    public void updateCache(Long productId, Integer quantity) {
+        stockCache.put(productId, quantity);
+    }
+
+    public Integer getStock(Long productId) {
+        return stockCache.get(productId);
+    }
+
+    public Map<Long, Integer> getAll() {
+        return stockCache;
+    }
+}
+
+package com.example.storefront.service;
+
+import org.springframework.stereotype.Service;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class CacheService {
+    private final Map<Long, Integer> stockCache = new ConcurrentHashMap<>();
+
+    public void updateCache(Long productId, Integer quantity) {
+        stockCache.put(productId, quantity);
+    }
+
+    public Integer getStock(Long productId) {
+        return stockCache.get(productId);
+    }
+
+    public Map<Long, Integer> getAll() {
+        return stockCache;
+    }
+}
+
+package com.example.storefront.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import java.util.Map;
+
+@Service
+public class WarehouseClient {
+
+    @Value("${warehouse.url}")
+    private String warehouseUrl;
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    public Map<String, Object> getProductAvailability(Long productId) {
+        String url = warehouseUrl + "/products/" + productId + "/availability";
+        return restTemplate.getForObject(url, Map.class);
+    }
+}
+package com.example.storefront.listener;
+
+import com.example.storefront.config.RabbitConfig;
+import com.example.storefront.dto.StockUpdateEvent;
+import com.example.storefront.service.CacheService;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class StockUpdateListener {
+
+    private final CacheService cacheService;
+
+    public StockUpdateListener(CacheService cacheService) {
+        this.cacheService = cacheService;
+    }
+
+    @RabbitListener(queues = RabbitConfig.STOCK_QUEUE)
+    public void handleStockUpdate(StockUpdateEvent event) {
+        cacheService.updateCache(event.getProductId(), event.getNewQuantity());
+        System.out.println("📦 Cache atualizado: produto " + event.getProductId() + " → " + event.getNewQuantity());
+    }
+}
+package com.example.storefront.web;
+
+import com.example.storefront.service.CacheService;
+import com.example.storefront.service.WarehouseClient;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/storefront")
+public class StorefrontController {
+
+    private final WarehouseClient warehouseClient;
+    private final CacheService cacheService;
+
+    public StorefrontController(WarehouseClient warehouseClient, CacheService cacheService) {
+        this.warehouseClient = warehouseClient;
+        this.cacheService = cacheService;
+    }
+
+    @GetMapping("/products/{productId}/availability")
+    public Map<String, Object> getProductAvailability(@PathVariable Long productId) {
+        Map<String, Object> warehouseResponse = warehouseClient.getProductAvailability(productId);
+        Integer cachedStock = cacheService.getStock(productId);
+
+        return Map.of(
+                "productId", productId,
+                "warehouse", warehouseResponse,
+                "cachedAvailable", cachedStock != null && cachedStock > 0
+        );
+    }
+
+    @GetMapping("/cache")
+    public Map<Long, Integer> getCache() {
+        return cacheService.getAll();
+    }
+}
